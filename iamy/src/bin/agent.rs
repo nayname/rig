@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 
 mod llm;
 
-use crate::llm::{ask_gpt, get_context};
+use crate::llm::{classify, get_context, ask_gpt};
 
 //---------------------------------------------------------------------
 // CONSTANTS (lifted directly from the Python source)
@@ -68,7 +68,7 @@ fn validate(class_: &str, answer: &Value) -> std::io::Result<()> {
 
 fn generate(query: &str, map: &mut Vec<Value>) -> anyhow::Result<()> {
     // 1. Read global context blob from disk.
-    let context = fs::read_to_string("context.json")?;
+    let context = fs::read_to_string("static/context.json")?;
 
     // 2. CLASSIFICATION STAGE ------------------------------------------------
     let messages = get_context(
@@ -78,10 +78,7 @@ fn generate(query: &str, map: &mut Vec<Value>) -> anyhow::Result<()> {
         &context,
     );
 
-    let (_request, answer_class) = ask_gpt(&messages);
-    let class_ = answer_class["choices"][0]["message"]["content"]
-        .as_str()
-        .unwrap_or("")
+    let class_ = classify(&messages)
         .trim_matches('"')
         .to_string();
 
@@ -113,20 +110,20 @@ fn generate(query: &str, map: &mut Vec<Value>) -> anyhow::Result<()> {
         &GENERATE_FLEX.replace("***QUERY***", query),
         &prog_context.to_string(),
     );
-    let (_req2, answer_gen) = ask_gpt(&gen_messages);
-
-    validate(&class_, &answer_gen)?;
-
-    // 5. UPDATE UI MAP -------------------------------------------------------
-    let mut rng = rand::rng();
-    let hash: u128 = rng.random();
-    map.push(json!({
-        "name": format!("{}_{}", hash, class_),
-        "query": query,
-        "label": class_,
-    }));
-
-    fs::write("generated_map.json", serde_json::to_string_pretty(&map)?)?;
+    // let answer_gen = ask_gpt(&gen_messages);
+    //
+    // validate(&class_, &answer_gen)?;
+    //
+    // // 5. UPDATE UI MAP -------------------------------------------------------
+    // let mut rng = rand::rng();
+    // let hash: u128 = rng.random();
+    // map.push(json!({
+    //     "name": format!("{}_{}", hash, class_),
+    //     "query": query,
+    //     "label": class_,
+    // }));
+    //
+    // fs::write("generated_map.json", serde_json::to_string_pretty(&map)?)?;
     Ok(())
 }
 
@@ -135,9 +132,8 @@ fn generate(query: &str, map: &mut Vec<Value>) -> anyhow::Result<()> {
 //---------------------------------------------------------------------
 
 fn main() -> anyhow::Result<()> {
-    println!("Start");
     // Load the synthetic query set.
-    let queries: Value = serde_json::from_str(&fs::read_to_string("queries.json")?)?;
+    let queries: Value = serde_json::from_str(&fs::read_to_string("static/queries.json")?)?;
 
     // Load or initialise the generated‑script index.
     let mut map: Vec<Value> = if Path::new("generated_map.json").exists() {
